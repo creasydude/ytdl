@@ -1,0 +1,16 @@
+name = "ytdl-cloudflare"
+main = "worker/index.js"
+compatibility_date = "2025-01-15"
+compatibility_flags = ["nodejs_compat"]
+
+[build]
+command = "npm run build"
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+
+# Environment variables (optional)
+# Uncomment and configure as needed
+# [vars]
+# CUSTOM_VAR = "value"
