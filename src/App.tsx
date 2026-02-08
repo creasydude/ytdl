@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Download, Sparkles, Music, Video, Loader2, Check, AlertCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Download, Sparkles, Music, Video, Loader2, Check, AlertCircle, Sun, Moon, Monitor } from 'lucide-react';
 
 interface VideoInfo {
   status: boolean;
@@ -75,7 +75,16 @@ export default function App() {
         });
         setIsLoading(false);
         setLoadingText(null);
-        window.open(data.downloadUrl, '_blank');
+        
+        // Trigger download without opening new tab if possible, or use _self for download links
+        const link = document.createElement('a');
+        link.href = data.download_url;
+        link.setAttribute('download', ''); // hint to browser
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
         return;
       }
       
@@ -131,18 +140,51 @@ export default function App() {
     }
   };
 
+  const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system');
+
+  useEffect(() => {
+    const root = window.document.documentElement;
+    const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    
+    if (isDark) {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+  }, [theme]);
+
+  const toggleTheme = () => {
+    if (theme === 'light') setTheme('dark');
+    else if (theme === 'dark') setTheme('system');
+    else setTheme('light');
+  };
+
+  const getThemeIcon = () => {
+    if (theme === 'light') return <Sun className="w-5 h-5" />;
+    if (theme === 'dark') return <Moon className="w-5 h-5" />;
+    return <Monitor className="w-5 h-5" />;
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-black">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-black transition-colors duration-300">
       {/* Animated background */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-0 -left-4 w-72 h-72 bg-purple-300 dark:bg-purple-900 rounded-full mix-blend-multiply dark:mix-blend-screen filter blur-xl opacity-20 animate-blob"></div>
-        <div className="absolute top-0 -right-4 w-72 h-72 bg-yellow-300 dark:bg-yellow-900 rounded-full mix-blend-multiply dark:mix-blend-screen filter blur-xl opacity-20 animate-blob animation-delay-2000"></div>
-        <div className="absolute -bottom-8 left-20 w-72 h-72 bg-pink-300 dark:bg-pink-900 rounded-full mix-blend-multiply dark:mix-blend-screen filter blur-xl opacity-20 animate-blob animation-delay-4000"></div>
+        <div className="absolute top-0 -left-4 w-72 h-72 bg-purple-300 dark:bg-purple-900 rounded-full mix-blend-multiply dark:mix-blend-screen filter blur-xl opacity-20 animate-blob transition-colors duration-300"></div>
+        <div className="absolute top-0 -right-4 w-72 h-72 bg-yellow-300 dark:bg-yellow-900 rounded-full mix-blend-multiply dark:mix-blend-screen filter blur-xl opacity-20 animate-blob animation-delay-2000 transition-colors duration-300"></div>
+        <div className="absolute -bottom-8 left-20 w-72 h-72 bg-pink-300 dark:bg-pink-900 rounded-full mix-blend-multiply dark:mix-blend-screen filter blur-xl opacity-20 animate-blob animation-delay-4000 transition-colors duration-300"></div>
       </div>
 
       <div className="relative max-w-4xl mx-auto px-4 py-12 md:py-20">
         {/* Header */}
-        <div className="text-center mb-12">
+        <div className="text-center mb-12 relative">
+          <button
+            onClick={toggleTheme}
+            className="absolute right-0 top-0 p-2 rounded-full bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-white dark:hover:bg-gray-800 transition-all"
+            title={`Current theme: ${theme}`}
+          >
+            {getThemeIcon()}
+          </button>
+          
           <div className="inline-flex items-center justify-center gap-2 mb-4">
             <Sparkles className="w-8 h-8 text-purple-600 dark:text-purple-400" />
             <h1 className="text-4xl md:text-5xl font-black bg-gradient-to-r from-purple-600 to-pink-600 dark:from-purple-400 dark:to-pink-400 bg-clip-text text-transparent">

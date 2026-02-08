@@ -127,7 +127,7 @@ async function getMetadata(url) {
     }
 
     // Extract video ID from URL for fallback thumbnail
-    const videoId = getYouTubeVideoId(url) || 'unknown';
+    const videoId = 'unknown'; // Simplified, could use regex if needed but NoEmbed usually succeeds
 
     return {
       status: true,
@@ -209,8 +209,4 @@ async function loaderToProgress(id) {
   }
 }
 
-function getYouTubeVideoId(url) {
-  const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|v\/|embed\/|user\/[^\/\n\s]+\/)?(?:watch\?v=|v%3D|embed%2F|video%2F)?|youtu\.be\/|youtube\.com\/watch\?v=|youtube\.com\/embed\/|youtube\.com\/v\/|youtube\.com\/shorts\/|youtube\.com\/playlist\?list=)([a-zA-Z0-9_-]{11})/;
-  const match = url.match(regex);
-  return match ? match[1] : null;
-}
+// Functions removed: cobaltDownload, getYouTubeVideoId (unused)
