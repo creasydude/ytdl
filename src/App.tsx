@@ -58,11 +58,48 @@ export default function App() {
     }
   };
 
+  const [loadingText, setLoadingText] = useState<string | null>(null);
+
+  const pollProgress = async (id: string) => {
+    try {
+      const response = await fetch(`${API_BASE}/api/progress?id=${id}`);
+      const data = await response.json();
+
+      if (data.success === 1 && data.download_url) {
+        setDownloadResult({
+          status: true,
+          quality: 'Standard', // loader.to doesn't return quality in progress, assumes requested
+          downloadUrl: data.download_url,
+          filename: 'video', // Generic filename
+          availableQualities: []
+        });
+        setIsLoading(false);
+        setLoadingText(null);
+        window.open(data.downloadUrl, '_blank');
+        return;
+      }
+      
+      if (data.text) {
+        setLoadingText(data.text);
+      }
+
+      // Continue polling
+      setTimeout(() => pollProgress(id), 2000);
+    } catch (err) {
+      console.error('Polling error:', err);
+      // Don't stop polling on single network error, maybe retry?
+      // For now, just retry
+      setTimeout(() => pollProgress(id), 2000);
+    }
+  };
+
   const handleDownload = async () => {
     if (!videoInfo || !selectedQuality) return;
 
     setIsLoading(true);
+    setLoadingText('Starting...');
     setError(null);
+    setDownloadResult(null);
 
     try {
       const response = await fetch(
@@ -70,18 +107,17 @@ export default function App() {
       );
       const data = await response.json();
 
-      if (!response.ok || !data.status) {
-        throw new Error(data.error || 'Failed to get download link');
+      if (!response.ok || !data.status || !data.id) {
+        throw new Error(data.error || 'Failed to start download');
       }
 
-      setDownloadResult(data);
-
-      // Auto download
-      window.open(data.downloadUrl, '_blank');
+      // Start polling
+      pollProgress(data.id);
+      
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
       setIsLoading(false);
+      setLoadingText(null);
     }
   };
 
@@ -171,7 +207,7 @@ export default function App() {
               {isLoading ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  processing...
+                  {loadingText || 'processing...'}
                 </>
               ) : videoInfo ? (
                 <>

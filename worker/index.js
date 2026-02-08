@@ -1,6 +1,6 @@
 /**
  * YouTube Downloader Cloudflare Worker
- * Adapted from @vreden/youtube_scraper for edge runtime
+ * Powered by Cobalt API (hp-api.iosphe.re) & NoEmbed
  */
 
 export default {
@@ -32,20 +32,13 @@ export default {
             });
           }
 
-          const videoId = getYouTubeVideoId(videoUrl);
-          if (!videoId) {
-            return new Response(JSON.stringify({ error: 'Invalid YouTube URL' }), {
-              status: 400,
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
-          }
-
-          const info = await getVideoInfo('https://youtube.com/watch?v=' + videoId);
+          const info = await getMetadata(videoUrl);
 
           return new Response(JSON.stringify(info), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
+
 
         // Download endpoint
         if (url.pathname === '/api/download') {
@@ -60,28 +53,7 @@ export default {
             });
           }
 
-          const videoId = getYouTubeVideoId(videoUrl);
-          if (!videoId) {
-            return new Response(JSON.stringify({ error: 'Invalid YouTube URL' }), {
-              status: 400,
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
-          }
-
-          const link = 'https://youtube.com/watch?v=' + videoId;
-
-          // Validate and set quality
-          const audioQualities = [92, 128, 256, 320];
-          const videoQualities = [144, 360, 480, 720, 1080];
-
-          let selectedQuality;
-          if (format === 'audio') {
-            selectedQuality = quality && audioQualities.includes(Number(quality)) ? Number(quality) : 128;
-          } else {
-            selectedQuality = quality && videoQualities.includes(Number(quality)) ? Number(quality) : 360;
-          }
-
-          const result = await savetube(link, selectedQuality, format);
+          const result = await loaderToDownload(videoUrl, format, quality);
 
           if (!result.status) {
             return new Response(JSON.stringify({ error: result.message || 'Download failed' }), {
@@ -90,14 +62,25 @@ export default {
             });
           }
 
-          // Return the direct download URL
-          return new Response(JSON.stringify({
-            status: true,
-            quality: result.quality,
-            downloadUrl: result.url,
-            filename: result.filename,
-            availableQualities: result.availableQuality
-          }), {
+          return new Response(JSON.stringify(result), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        // Progress endpoint
+        if (url.pathname === '/api/progress') {
+          const id = url.searchParams.get('id');
+
+          if (!id) {
+            return new Response(JSON.stringify({ error: 'Job ID is required' }), {
+              status: 400,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          }
+
+          const progress = await loaderToProgress(id);
+
+          return new Response(JSON.stringify(progress), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
@@ -127,163 +110,107 @@ export default {
   },
 };
 
-function getYouTubeVideoId(url) {
-  const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|v\/|embed\/|user\/[^\/\n\s]+\/)?(?:watch\?v=|v%3D|embed%2F|video%2F)?|youtu\.be\/|youtube\.com\/watch\?v=|youtube\.com\/embed\/|youtube\.com\/v\/|youtube\.com\/shorts\/|youtube\.com\/playlist\?list=)([a-zA-Z0-9_-]{11})/;
-  const match = url.match(regex);
-  return match ? match[1] : null;
-}
-
-// Decode encrypted data using Web Crypto API
-async function decode(enc) {
+// Get video metadata using NoEmbed
+async function getMetadata(url) {
   try {
-    const secret_key = 'C5D58EF67A7584E4A29F6C35BBC4EB12';
-
-    // Convert base64 to array buffer
-    const data = Uint8Array.from(atob(enc), c => c.charCodeAt(0));
-
-    // Extract IV (first 16 bytes) and content
-    const iv = data.slice(0, 16);
-    const content = data.slice(16);
-
-    // Convert hex key to bytes
-    const keyData = new Uint8Array(secret_key.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-
-    // Import key
-    const key = await crypto.subtle.importKey(
-      'raw',
-      keyData,
-      { name: 'AES-CBC', length: 128 },
-      false,
-      ['decrypt']
-    );
-
-    // Decrypt
-    const decrypted = await crypto.subtle.decrypt(
-      { name: 'AES-CBC', iv: iv },
-      key,
-      content
-    );
-
-    // Convert to string and parse JSON
-    const decoder = new TextDecoder();
-    return JSON.parse(decoder.decode(decrypted));
-  } catch (error) {
-    throw new Error('Decryption failed: ' + error.message);
-  }
-}
-
-async function savetube(link, quality, value) {
-  try {
-    // Get CDN
-    const cdnResponse = await fetch('https://media.savetube.me/api/random-cdn');
-    const cdnData = await cdnResponse.json();
-    const cdn = cdnData.cdn;
-
-    console.log('Using CDN:', cdn);
-
-    // Get video info
-    const infoResponse = await fetch(`https://${cdn}/v2/info`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Mobile Safari/537.36',
-        'Referer': 'https://yt.savetube.me/1kejjj1?id=362796039'
-      },
-      body: JSON.stringify({ url: link })
-    });
-
-    const infoData = await infoResponse.json();
-    console.log('Info response:', JSON.stringify(infoData));
-
-    if (!infoData.data) {
-      throw new Error('No data in info response');
+    const noembedUrl = `https://noembed.com/embed?url=${encodeURIComponent(url)}`;
+    const response = await fetch(noembedUrl);
+    
+    if (!response.ok) {
+      throw new Error(`Metadata fetch failed: ${response.status}`);
     }
 
-    const info = await decode(infoData.data);
-    console.log('Decoded info:', JSON.stringify(info));
-
-    // Get download URL
-    const downloadResponse = await fetch(`https://${cdn}/download`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Mobile Safari/537.36',
-        'Referer': 'https://yt.savetube.me/start-download?from=1kejjj1%3Fid%3D362796039'
-      },
-      body: JSON.stringify({
-        downloadType: value,
-        quality: String(quality),
-        key: info.key
-      })
-    });
-
-    const downloadData = await downloadResponse.json();
-    console.log('Download response:', JSON.stringify(downloadData));
-
-    if (!downloadData || !downloadData.data) {
-      throw new Error('Invalid download response: ' + JSON.stringify(downloadData));
+    const data = await response.json();
+    
+    if (data.error) {
+       throw new Error(data.error);
     }
 
-    // Handle different response structures
-    const downloadUrl = downloadData.data.downloadUrl || downloadData.data.url || downloadData.downloadUrl;
-
-    if (!downloadUrl) {
-      throw new Error('No download URL found in response: ' + JSON.stringify(downloadData));
-    }
-
-    return {
-      status: true,
-      quality: `${quality}${value === 'audio' ? 'kbps' : 'p'}`,
-      availableQuality: value === 'audio' ? [92, 128, 256, 320] : [144, 360, 480, 720, 1080],
-      url: downloadUrl,
-      filename: `${info.title} (${quality}${value === 'audio' ? 'kbps).mp3' : 'p).mp4'})`
-    };
-  } catch (error) {
-    console.error('Converting error:', error);
-    return {
-      status: false,
-      message: 'Converting error: ' + error.message
-    };
-  }
-}
-
-async function getVideoInfo(link) {
-  try {
-    const videoId = getYouTubeVideoId(link);
-    if (!videoId) {
-      throw new Error('Invalid YouTube URL');
-    }
-
-    // Use SaveTube API to get basic info
-    const cdnResponse = await fetch('https://media.savetube.me/api/random-cdn');
-    const cdnData = await cdnResponse.json();
-    const cdn = cdnData.cdn;
-
-    const infoResponse = await fetch(`https://${cdn}/v2/info`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Mobile Safari/537.36',
-        'Referer': 'https://yt.savetube.me/'
-      },
-      body: JSON.stringify({ url: link })
-    });
-
-    const infoData = await infoResponse.json();
-    const info = await decode(infoData.data);
+    // Extract video ID from URL for fallback thumbnail
+    const videoId = getYouTubeVideoId(url) || 'unknown';
 
     return {
       status: true,
       videoId: videoId,
-      title: info.title,
-      duration: info.duration,
-      thumbnail: `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
+      title: data.title || 'Unknown Title',
+      duration: '0:00', // NoEmbed doesn't return duration
+      thumbnail: data.thumbnail_url || `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
       availableFormats: {
-        audio: [92, 128, 256, 320],
-        video: [144, 360, 480, 720, 1080]
+        audio: [128], // loader.to MP3 default
+        video: [360, 480, 720, 1080, 1440, 2160] // Common loader.to formats
       }
     };
   } catch (error) {
     throw new Error('Failed to get video info: ' + error.message);
   }
+}
+
+// Download using loader.to API
+async function loaderToDownload(url, format, quality) {
+  try {
+    const API_URL = 'https://loader.to/ajax/download.php';
+    
+    // Map internal format/quality to loader.to "format" parameter
+    let targetFormat = '720'; // default
+    
+    if (format === 'audio') {
+      targetFormat = 'mp3';
+    } else {
+      // video
+      if (quality) targetFormat = String(quality);
+    }
+
+    // loader.to expects: format (e.g. "mp3", "1080"), url
+    const requestUrl = `${API_URL}?format=${targetFormat}&url=${encodeURIComponent(url)}`;
+    
+    const response = await fetch(requestUrl);
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error('Loader.to API error');
+    }
+    
+    // loader.to returns: { id: "...", success: true/false, ... }
+    // It seems successful request returns { id: "..." } and doesn't explicitly say success: false unless error?
+    // Based on curl, it returns `id`.
+
+    if (!data.id) {
+       throw new Error('No job ID returned from provider');
+    }
+
+    return {
+      status: true,
+      id: data.id,
+      original_format: format,
+      original_quality: quality
+    };
+
+  } catch (error) {
+    console.error('Loader.to error:', error);
+    return {
+      status: false,
+      message: 'Provider error: ' + error.message
+    };
+  }
+}
+
+// Check progress using loader.to API directly
+async function loaderToProgress(id) {
+  try {
+    // Use the main domain for progress checks as p.savenow.to seems flaky/private
+    const PROGRESS_URL = `https://loader.to/ajax/progress.php?id=${id}`;
+    
+    const response = await fetch(PROGRESS_URL);
+    const data = await response.json();
+    
+    return data; 
+  } catch (error) {
+    return { success: 0, text: 'Progress check failed' };
+  }
+}
+
+function getYouTubeVideoId(url) {
+  const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|v\/|embed\/|user\/[^\/\n\s]+\/)?(?:watch\?v=|v%3D|embed%2F|video%2F)?|youtu\.be\/|youtube\.com\/watch\?v=|youtube\.com\/embed\/|youtube\.com\/v\/|youtube\.com\/shorts\/|youtube\.com\/playlist\?list=)([a-zA-Z0-9_-]{11})/;
+  const match = url.match(regex);
+  return match ? match[1] : null;
 }
